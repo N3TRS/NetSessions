@@ -58,6 +58,10 @@ export class CollaborationGateway
     this.logger.debug(`Client connected ${client.id}${userEmail ? ` (${userEmail})` : ''}`);
   }
 
+  emitExecutionResult(sessionId: string, payload: unknown): void {
+    this.server.to(this.roomName(sessionId)).emit('execution.result', payload);
+  }
+
   async handleDisconnect(client: SocketWithUser): Promise<void> {
     const sessionId = client.data.activeSessionId;
     const userEmail = client.data.user?.email;
