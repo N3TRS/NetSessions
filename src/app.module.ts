@@ -7,6 +7,7 @@ import { CollaborationModule } from './modules/collaboration/collaboration.modul
 import { ExecutionModule } from './modules/execution/execution.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { PersistenceModule } from './modules/persistence/persistence.module';
+import { YjsModule } from './modules/yjs/yjs.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PersistenceModule } from './modules/persistence/persistence.module';
     ExecutionModule,
     RedisModule,
     PersistenceModule,
+    YjsModule,
   ],
 })
 export class AppModule {}
