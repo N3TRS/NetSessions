@@ -62,28 +62,26 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    const existing =
-      await this.sessionParticipantsRepository.findBySessionIdAndUserEmail(
-        session.id,
-        userEmail,
-      );
+    await this.markParticipantOnline(session.id, userEmail);
 
-    if (!existing || !existing.isOnline) {
-      const onlineCount =
-        await this.sessionParticipantsRepository.countOnlineBySessionId(
-          session.id,
-        );
+    await this.redisService.addSessionMember(session.id, userEmail);
+    await this.redisService.refreshSessionStateTtl(session.id);
 
-      if (onlineCount >= MAX_COLLABORATORS) {
-        throw new ConflictException('Session is full (max 5 collaborators)');
-      }
-    }
-
-    await this.sessionParticipantsRepository.upsertOnlineParticipant(
+    const participantsOnline = await this.redisService.getSessionMembersCount(
       session.id,
-      userEmail,
     );
 
+    return {
+      session,
+      participantsOnline,
+      canJoin: true,
+    };
+  }
+
+  async joinSessionById(sessionId: string, userEmail: string) {
+    const session = await this.getSessionOrThrow(sessionId);
+
+    await this.markParticipantOnline(session.id, userEmail);
     await this.redisService.addSessionMember(session.id, userEmail);
     await this.redisService.refreshSessionStateTtl(session.id);
 
@@ -197,5 +195,30 @@ export class SessionsService {
     }
 
     throw new ConflictException('Could not generate unique invite code');
+  }
+
+  private async markParticipantOnline(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<void> {
+    const existing =
+      await this.sessionParticipantsRepository.findBySessionIdAndUserEmail(
+        sessionId,
+        userEmail,
+      );
+
+    if (!existing || !existing.isOnline) {
+      const onlineCount =
+        await this.sessionParticipantsRepository.countOnlineBySessionId(sessionId);
+
+      if (onlineCount >= MAX_COLLABORATORS) {
+        throw new ConflictException('Session is full (max 5 collaborators)');
+      }
+    }
+
+    await this.sessionParticipantsRepository.upsertOnlineParticipant(
+      sessionId,
+      userEmail,
+    );
   }
 }
