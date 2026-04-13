@@ -62,6 +62,20 @@ export class SessionParticipantsRepository {
     });
   }
 
+  findBySessionIdAndUserEmail(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<SessionParticipant | null> {
+    return this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userEmail: {
+          sessionId,
+          userEmail,
+        },
+      },
+    });
+  }
+
   listBySessionId(sessionId: string): Promise<SessionParticipant[]> {
     return this.prisma.sessionParticipant.findMany({
       where: { sessionId },
