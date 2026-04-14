@@ -24,11 +24,4 @@ export class SessionsRepository {
   findByInviteCode(inviteCode: string): Promise<Session | null> {
     return this.prisma.session.findUnique({ where: { inviteCode } });
   }
-
-  updateLanguage(id: string, language: string): Promise<Session> {
-    return this.prisma.session.update({
-      where: { id },
-      data: { language },
-    });
-  }
 }

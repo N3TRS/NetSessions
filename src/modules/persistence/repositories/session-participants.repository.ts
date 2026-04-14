@@ -38,7 +38,10 @@ export class SessionParticipantsRepository {
     });
   }
 
-  setOffline(sessionId: string, userEmail: string): Promise<SessionParticipant> {
+  setOffline(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<SessionParticipant> {
     return this.prisma.sessionParticipant.update({
       where: {
         sessionId_userEmail: {

@@ -17,7 +17,10 @@ import {
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  private readonly channelHandlers = new Map<string, (event: unknown) => void>();
+  private readonly channelHandlers = new Map<
+    string,
+    (event: unknown) => void
+  >();
 
   constructor(
     @Inject(REDIS_PUBLISHER_CLIENT)
@@ -28,14 +31,20 @@ export class RedisService implements OnModuleDestroy {
     this.subscriber.on('message', this.handleMessage.bind(this));
   }
 
-  async addSessionMember(sessionId: string, userEmail: string): Promise<number> {
+  async addSessionMember(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<number> {
     const key = sessionMembersKey(sessionId);
     const total = await this.publisher.sadd(key, userEmail);
     await this.publisher.expire(key, SESSION_MEMBERS_TTL_SECONDS);
     return total;
   }
 
-  async removeSessionMember(sessionId: string, userEmail: string): Promise<number> {
+  async removeSessionMember(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<number> {
     const key = sessionMembersKey(sessionId);
     const removed = await this.publisher.srem(key, userEmail);
     await this.publisher.expire(key, SESSION_MEMBERS_TTL_SECONDS);
@@ -71,7 +80,10 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async refreshSessionStateTtl(sessionId: string): Promise<void> {
-    await this.publisher.expire(sessionStateKey(sessionId), SESSION_STATE_TTL_SECONDS);
+    await this.publisher.expire(
+      sessionStateKey(sessionId),
+      SESSION_STATE_TTL_SECONDS,
+    );
   }
 
   async acquireExecutionLock(
@@ -98,7 +110,10 @@ export class RedisService implements OnModuleDestroy {
   }
 
   publishSessionEvent(sessionId: string, event: unknown): Promise<number> {
-    return this.publisher.publish(sessionEventsChannel(sessionId), JSON.stringify(event));
+    return this.publisher.publish(
+      sessionEventsChannel(sessionId),
+      JSON.stringify(event),
+    );
   }
 
   async subscribeToSessionEvents(
@@ -137,9 +152,6 @@ export class RedisService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.channelHandlers.clear();
 
-    await Promise.allSettled([
-      this.subscriber.quit(),
-      this.publisher.quit(),
-    ]);
+    await Promise.allSettled([this.subscriber.quit(), this.publisher.quit()]);
   }
 }

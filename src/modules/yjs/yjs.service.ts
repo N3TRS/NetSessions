@@ -28,7 +28,10 @@ export class YjsService implements OnApplicationShutdown {
   private readonly logger = new Logger(YjsService.name);
   private server?: WebSocketServer;
   private readonly docs = new Map<string, Y.Doc>();
-  private readonly docAwareness = new Map<string, awarenessProtocol.Awareness>();
+  private readonly docAwareness = new Map<
+    string,
+    awarenessProtocol.Awareness
+  >();
   private readonly docConnections = new Map<
     string,
     Map<WebSocket, Set<number>>
@@ -79,7 +82,10 @@ export class YjsService implements OnApplicationShutdown {
     });
   }
 
-  private async onConnection(conn: WebSocket, request: IncomingMessage): Promise<void> {
+  private async onConnection(
+    conn: WebSocket,
+    request: IncomingMessage,
+  ): Promise<void> {
     try {
       const { sessionId, token } = this.extractConnectionData(request);
       const payload = await this.verifyToken(token);
@@ -96,7 +102,9 @@ export class YjsService implements OnApplicationShutdown {
         );
 
       if (!participant) {
-        throw new UnauthorizedException('User is not a participant of this session');
+        throw new UnauthorizedException(
+          'User is not a participant of this session',
+        );
       }
 
       this.setupWsConnection(conn, sessionId);
@@ -136,7 +144,11 @@ export class YjsService implements OnApplicationShutdown {
     this.sendAwarenessState(docName, conn);
   }
 
-  private handleMessage(docName: string, conn: WebSocket, message: Uint8Array): void {
+  private handleMessage(
+    docName: string,
+    conn: WebSocket,
+    message: Uint8Array,
+  ): void {
     const doc = this.docs.get(docName);
     const awareness = this.docAwareness.get(docName);
 
@@ -202,7 +214,10 @@ export class YjsService implements OnApplicationShutdown {
     encoding.writeVarUint(encoder, 1);
     encoding.writeVarUint8Array(
       encoder,
-      awarenessProtocol.encodeAwarenessUpdate(awareness, Array.from(states.keys())),
+      awarenessProtocol.encodeAwarenessUpdate(
+        awareness,
+        Array.from(states.keys()),
+      ),
     );
 
     this.send(conn, encoding.toUint8Array(encoder));

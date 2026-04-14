@@ -19,7 +19,9 @@ export class WsJwtGuard implements CanActivate {
     const token = this.extractToken(client);
 
     if (!token) {
-      throw new UnauthorizedException('Missing bearer token in websocket handshake');
+      throw new UnauthorizedException(
+        'Missing bearer token in websocket handshake',
+      );
     }
 
     try {

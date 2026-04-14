@@ -32,7 +32,10 @@ export class SessionsController {
   }
 
   @Post('join')
-  joinSession(@Req() request: AuthenticatedRequest, @Body() dto: JoinSessionDto) {
+  joinSession(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: JoinSessionDto,
+  ) {
     return this.sessionsService.joinSession(this.getUserEmail(request), dto);
   }
 
@@ -47,7 +50,11 @@ export class SessionsController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateSessionSnapshotDto,
   ) {
-    return this.sessionsService.createSnapshot(id, this.getUserEmail(request), dto);
+    return this.sessionsService.createSnapshot(
+      id,
+      this.getUserEmail(request),
+      dto,
+    );
   }
 
   private getUserEmail(request: AuthenticatedRequest): string {

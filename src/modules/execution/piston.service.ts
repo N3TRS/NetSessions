@@ -53,7 +53,8 @@ export class PistonService {
     };
 
     const baseUrl =
-      this.configService.get<string>('PISTON_API_URL') ?? DEFAULT_PISTON_BASE_URL;
+      this.configService.get<string>('PISTON_API_URL') ??
+      DEFAULT_PISTON_BASE_URL;
 
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 15000);

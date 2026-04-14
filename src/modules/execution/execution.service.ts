@@ -26,11 +26,15 @@ export class ExecutionService {
     );
 
     if (!locked) {
-      throw new ConflictException('Another execution is in progress for this session');
+      throw new ConflictException(
+        'Another execution is in progress for this session',
+      );
     }
 
     try {
-      const sessionData = await this.sessionsService.getSessionById(dto.sessionId);
+      const sessionData = await this.sessionsService.getSessionById(
+        dto.sessionId,
+      );
       const userIsMember = sessionData.participants.some(
         (participant) => participant.userEmail === userEmail,
       );

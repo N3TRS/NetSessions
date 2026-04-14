@@ -19,11 +19,12 @@ import { SessionsService } from '../sessions/sessions.service';
 import { RedisService } from '../redis/redis.service';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import { WsSessionDto } from './dto/ws-session.dto';
-import { WsLanguageChangedDto } from './dto/ws-language-changed.dto';
 import { WsSessionLeaveDto } from './dto/ws-session-leave.dto';
 import { WsUser } from './interfaces/ws-user.interface';
 
-type SocketWithUser = Socket & { data: { user?: WsUser; activeSessionId?: string } };
+type SocketWithUser = Socket & {
+  data: { user?: WsUser; activeSessionId?: string };
+};
 
 @WebSocketGateway({
   namespace: '/ws/session',
@@ -55,7 +56,9 @@ export class CollaborationGateway
 
   handleConnection(client: SocketWithUser): void {
     const userEmail = client.data.user?.email;
-    this.logger.debug(`Client connected ${client.id}${userEmail ? ` (${userEmail})` : ''}`);
+    this.logger.debug(
+      `Client connected ${client.id}${userEmail ? ` (${userEmail})` : ''}`,
+    );
   }
 
   emitExecutionResult(sessionId: string, payload: unknown): void {
@@ -100,7 +103,9 @@ export class CollaborationGateway
     await client.join(this.roomName(payload.sessionId));
     client.data.activeSessionId = payload.sessionId;
 
-    const members = await this.redisService.getSessionMembers(payload.sessionId);
+    const members = await this.redisService.getSessionMembers(
+      payload.sessionId,
+    );
     const state = await this.redisService.getSessionState(payload.sessionId);
 
     await this.redisService.publishSessionEvent(payload.sessionId, {
@@ -137,7 +142,10 @@ export class CollaborationGateway
   ) {
     const userEmail = this.getUserEmail(client);
 
-    await this.sessionsService.markParticipantOffline(payload.sessionId, userEmail);
+    await this.sessionsService.markParticipantOffline(
+      payload.sessionId,
+      userEmail,
+    );
     await this.redisService.publishSessionEvent(payload.sessionId, {
       type: 'session.presence',
       sessionId: payload.sessionId,
@@ -149,7 +157,9 @@ export class CollaborationGateway
     await client.leave(this.roomName(payload.sessionId));
     client.data.activeSessionId = undefined;
 
-    const members = await this.redisService.getSessionMembers(payload.sessionId);
+    const members = await this.redisService.getSessionMembers(
+      payload.sessionId,
+    );
 
     this.server.to(this.roomName(payload.sessionId)).emit('session.presence', {
       sessionId: payload.sessionId,
@@ -164,37 +174,6 @@ export class CollaborationGateway
       data: {
         sessionId: payload.sessionId,
         participantsOnline: members.length,
-      },
-    };
-  }
-
-  @SubscribeMessage('session.language.changed')
-  async onLanguageChanged(
-    @ConnectedSocket() client: SocketWithUser,
-    @MessageBody() payload: WsLanguageChangedDto,
-  ) {
-    const userEmail = this.getUserEmail(client);
-
-    await this.sessionsService.updateLanguage(payload.sessionId, payload.language);
-    await this.redisService.publishSessionEvent(payload.sessionId, {
-      type: 'session.language.changed',
-      sessionId: payload.sessionId,
-      language: payload.language,
-      changedBy: userEmail,
-      at: new Date().toISOString(),
-    });
-
-    this.server.to(this.roomName(payload.sessionId)).emit('session.language.changed', {
-      sessionId: payload.sessionId,
-      language: payload.language,
-      changedBy: userEmail,
-    });
-
-    return {
-      event: 'session.language.changed.ack',
-      data: {
-        sessionId: payload.sessionId,
-        language: payload.language,
       },
     };
   }

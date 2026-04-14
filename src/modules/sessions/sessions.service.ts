@@ -147,22 +147,15 @@ export class SessionsService {
     return { snapshot };
   }
 
-  async markParticipantOffline(sessionId: string, userEmail: string): Promise<void> {
+  async markParticipantOffline(
+    sessionId: string,
+    userEmail: string,
+  ): Promise<void> {
     await this.getSessionOrThrow(sessionId);
 
     await this.sessionParticipantsRepository.setOffline(sessionId, userEmail);
     await this.redisService.removeSessionMember(sessionId, userEmail);
     await this.redisService.refreshSessionStateTtl(sessionId);
-  }
-
-  async updateLanguage(sessionId: string, language: string): Promise<void> {
-    await this.getSessionOrThrow(sessionId);
-
-    await this.sessionsRepository.updateLanguage(sessionId, language);
-    await this.redisService.setSessionState(sessionId, {
-      language,
-      lastActivityAt: new Date().toISOString(),
-    });
   }
 
   async acquireRunLock(sessionId: string, owner: string): Promise<boolean> {
@@ -187,7 +180,8 @@ export class SessionsService {
   private async generateUniqueInviteCode(maxAttempts = 5): Promise<string> {
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const inviteCode = randomBytes(4).toString('hex').toUpperCase();
-      const existing = await this.sessionsRepository.findByInviteCode(inviteCode);
+      const existing =
+        await this.sessionsRepository.findByInviteCode(inviteCode);
 
       if (!existing) {
         return inviteCode;
@@ -209,7 +203,9 @@ export class SessionsService {
 
     if (!existing || !existing.isOnline) {
       const onlineCount =
-        await this.sessionParticipantsRepository.countOnlineBySessionId(sessionId);
+        await this.sessionParticipantsRepository.countOnlineBySessionId(
+          sessionId,
+        );
 
       if (onlineCount >= MAX_COLLABORATORS) {
         throw new ConflictException('Session is full (max 5 collaborators)');

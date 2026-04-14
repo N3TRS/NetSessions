@@ -26,12 +26,14 @@ function createRedisClient(configService: ConfigService): Redis {
     {
       provide: REDIS_PUBLISHER_CLIENT,
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => createRedisClient(configService),
+      useFactory: (configService: ConfigService) =>
+        createRedisClient(configService),
     },
     {
       provide: REDIS_SUBSCRIBER_CLIENT,
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => createRedisClient(configService),
+      useFactory: (configService: ConfigService) =>
+        createRedisClient(configService),
     },
     RedisService,
   ],
