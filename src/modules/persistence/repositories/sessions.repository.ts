@@ -24,4 +24,17 @@ export class SessionsRepository {
   findByInviteCode(inviteCode: string): Promise<Session | null> {
     return this.prisma.session.findUnique({ where: { inviteCode } });
   }
+
+  listForUser(userEmail: string): Promise<Session[]> {
+    return this.prisma.session.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { ownerEmail: userEmail },
+          { participants: { some: { userEmail } } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }

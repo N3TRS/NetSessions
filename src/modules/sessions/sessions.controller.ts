@@ -39,6 +39,11 @@ export class SessionsController {
     return this.sessionsService.joinSession(this.getUserEmail(request), dto);
   }
 
+  @Get()
+  listMySessions(@Req() request: AuthenticatedRequest) {
+    return this.sessionsService.listSessionsForUser(this.getUserEmail(request));
+  }
+
   @Get(':id')
   getSession(@Param('id') id: string) {
     return this.sessionsService.getSessionById(id);

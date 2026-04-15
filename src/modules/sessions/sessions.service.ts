@@ -96,6 +96,11 @@ export class SessionsService {
     };
   }
 
+  async listSessionsForUser(userEmail: string) {
+    const sessions = await this.sessionsRepository.listForUser(userEmail);
+    return { sessions };
+  }
+
   async getSessionById(sessionId: string) {
     const session = await this.getSessionOrThrow(sessionId);
     const participants =
