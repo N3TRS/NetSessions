@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  moduleFormat    = "cjs"
+}
+
+generator clientLegacy {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id           String               @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  inviteCode   String               @unique
+  ownerEmail   String
+  language     String               @default("javascript")
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  participants SessionParticipant[]
+  snapshots    SessionSnapshot[]
+  yjsState     SessionYjsState?
+
+  @@index([ownerEmail])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model SessionYjsState {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String   @unique @db.ObjectId
+  state     Bytes
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model SessionParticipant {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String    @db.ObjectId
+  userEmail String
+  isOnline  Boolean   @default(true)
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userEmail])
+  @@index([sessionId, isOnline])
+  @@index([userEmail])
+}
+
+model SessionSnapshot {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId    String   @db.ObjectId
+  savedByEmail String
+  language     String
+  code         String
+  createdAt    DateTime @default(now())
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([savedByEmail])
+}
