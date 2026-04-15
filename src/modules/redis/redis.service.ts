@@ -6,12 +6,14 @@ import {
   REDIS_SUBSCRIBER_CLIENT,
   SESSION_MEMBERS_TTL_SECONDS,
   SESSION_STATE_TTL_SECONDS,
+  YJS_DOC_STATE_TTL_SECONDS,
 } from './redis.constants';
 import {
   sessionEventsChannel,
   sessionExecutionLockKey,
   sessionMembersKey,
   sessionStateKey,
+  yjsDocStateKey,
 } from './redis.utils';
 
 @Injectable()
@@ -107,6 +109,35 @@ export class RedisService implements OnModuleDestroy {
     if (lockOwner === owner) {
       await this.publisher.del(key);
     }
+  }
+
+  async setYjsDocState(
+    sessionId: string,
+    state: Uint8Array,
+  ): Promise<void> {
+    await this.publisher.set(
+      yjsDocStateKey(sessionId),
+      Buffer.from(state).toString('base64'),
+      'EX',
+      YJS_DOC_STATE_TTL_SECONDS,
+    );
+  }
+
+  async getYjsDocState(sessionId: string): Promise<Uint8Array | null> {
+    const value = await this.publisher.get(yjsDocStateKey(sessionId));
+
+    if (!value) {
+      return null;
+    }
+
+    return Uint8Array.from(Buffer.from(value, 'base64'));
+  }
+
+  async refreshYjsDocStateTtl(sessionId: string): Promise<void> {
+    await this.publisher.expire(
+      yjsDocStateKey(sessionId),
+      YJS_DOC_STATE_TTL_SECONDS,
+    );
   }
 
   publishSessionEvent(sessionId: string, event: unknown): Promise<number> {

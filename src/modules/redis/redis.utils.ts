@@ -13,3 +13,7 @@ export function sessionEventsChannel(sessionId: string): string {
 export function sessionExecutionLockKey(sessionId: string): string {
   return `session:${sessionId}:run:lock`;
 }
+
+export function yjsDocStateKey(sessionId: string): string {
+  return `yjs:doc:${sessionId}`;
+}

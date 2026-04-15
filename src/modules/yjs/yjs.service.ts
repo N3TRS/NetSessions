@@ -11,11 +11,10 @@ import type { Duplex } from 'stream';
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
 import { SessionParticipantsRepository } from '../persistence/repositories/session-participants.repository';
+import { YjsDocStateRepository } from '../persistence/repositories/yjs-doc-state.repository';
+import { RedisService } from '../redis/redis.service';
 
 interface JwtPayload {
   email?: string;
@@ -23,24 +22,34 @@ interface JwtPayload {
   avatarUrl?: string;
 }
 
+interface SessionRoom {
+  doc: Y.Doc;
+  awareness: awarenessProtocol.Awareness;
+  conns: Set<WebSocket>;
+  connAwareness: Map<WebSocket, Set<number>>;
+  redisTimer?: NodeJS.Timeout;
+  mongoTimer?: NodeJS.Timeout;
+}
+
+const FRAME_SYNC_FULL = 0x00;
+const FRAME_SYNC_UPDATE = 0x01;
+const FRAME_AWARENESS = 0x02;
+
+const REDIS_PERSIST_DEBOUNCE_MS = 500;
+const MONGO_PERSIST_DEBOUNCE_MS = 5_000;
+
 @Injectable()
 export class YjsService implements OnApplicationShutdown {
   private readonly logger = new Logger(YjsService.name);
   private server?: WebSocketServer;
-  private readonly docs = new Map<string, Y.Doc>();
-  private readonly docAwareness = new Map<
-    string,
-    awarenessProtocol.Awareness
-  >();
-  private readonly docConnections = new Map<
-    string,
-    Map<WebSocket, Set<number>>
-  >();
+  private readonly rooms = new Map<string, SessionRoom>();
 
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly sessionParticipantsRepository: SessionParticipantsRepository,
+    private readonly yjsDocStateRepository: YjsDocStateRepository,
+    private readonly redisService: RedisService,
   ) {}
 
   initialize(server: import('http').Server): void {
@@ -48,9 +57,7 @@ export class YjsService implements OnApplicationShutdown {
       return;
     }
 
-    this.server = new WebSocketServer({
-      noServer: true,
-    });
+    this.server = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', (request, socket, head) => {
       if (!request.url?.startsWith('/ws/yjs')) {
@@ -107,7 +114,7 @@ export class YjsService implements OnApplicationShutdown {
         );
       }
 
-      this.setupWsConnection(conn, sessionId);
+      await this.setupConnection(conn, sessionId);
     } catch (error) {
       this.logger.warn(
         `Yjs connection rejected: ${
@@ -118,14 +125,15 @@ export class YjsService implements OnApplicationShutdown {
     }
   }
 
-  private setupWsConnection(conn: WebSocket, docName: string): void {
+  private async setupConnection(
+    conn: WebSocket,
+    sessionId: string,
+  ): Promise<void> {
     conn.binaryType = 'arraybuffer';
 
-    const doc = this.getOrCreateDoc(docName);
-    const awareness = this.getOrCreateAwareness(docName, doc);
-    const connections = this.getOrCreateConnections(docName);
-
-    connections.set(conn, new Set<number>());
+    const room = await this.getOrCreateRoom(sessionId);
+    room.conns.add(conn);
+    room.connAwareness.set(conn, new Set<number>());
 
     conn.on('message', (message) => {
       const data =
@@ -133,218 +141,220 @@ export class YjsService implements OnApplicationShutdown {
           ? new Uint8Array(message)
           : new Uint8Array(message as ArrayBuffer);
 
-      this.handleMessage(docName, conn, data);
+      this.handleFrame(conn, room, sessionId, data);
     });
 
     conn.on('close', () => {
-      this.closeConnection(docName, conn);
+      this.onConnectionClose(conn, room);
     });
 
-    this.sendSyncStep1(docName, conn);
-    this.sendAwarenessState(docName, conn);
+    this.sendFrame(conn, FRAME_SYNC_FULL, Y.encodeStateAsUpdate(room.doc));
+
+    const awarenessStates = room.awareness.getStates();
+    if (awarenessStates.size > 0) {
+      const payload = awarenessProtocol.encodeAwarenessUpdate(
+        room.awareness,
+        Array.from(awarenessStates.keys()),
+      );
+      this.sendFrame(conn, FRAME_AWARENESS, payload);
+    }
   }
 
-  private handleMessage(
-    docName: string,
-    conn: WebSocket,
-    message: Uint8Array,
-  ): void {
-    const doc = this.docs.get(docName);
-    const awareness = this.docAwareness.get(docName);
-
-    if (!doc || !awareness) {
-      return;
+  private async getOrCreateRoom(sessionId: string): Promise<SessionRoom> {
+    const cached = this.rooms.get(sessionId);
+    if (cached) {
+      await this.redisService
+        .refreshYjsDocStateTtl(sessionId)
+        .catch(() => undefined);
+      return cached;
     }
 
+    const doc = new Y.Doc();
+
     try {
-      const encoder = encoding.createEncoder();
-      const decoder = decoding.createDecoder(message);
-      const messageType = decoding.readVarUint(decoder);
-
-      if (messageType === 0) {
-        encoding.writeVarUint(encoder, 0);
-        syncProtocol.readSyncMessage(decoder, encoder, doc, conn);
-
-        if (encoding.length(encoder) > 1) {
-          this.send(conn, encoding.toUint8Array(encoder));
+      const redisState = await this.redisService.getYjsDocState(sessionId);
+      if (redisState && redisState.byteLength > 0) {
+        Y.applyUpdate(doc, redisState);
+      } else {
+        const mongoState =
+          await this.yjsDocStateRepository.findBySessionId(sessionId);
+        if (mongoState?.state && mongoState.state.length > 0) {
+          Y.applyUpdate(doc, Uint8Array.from(mongoState.state));
+          await this.redisService.setYjsDocState(
+            sessionId,
+            Y.encodeStateAsUpdate(doc),
+          );
         }
-      }
-
-      if (messageType === 1) {
-        const update = decoding.readVarUint8Array(decoder);
-        awarenessProtocol.applyAwarenessUpdate(awareness, update, conn);
       }
     } catch (error) {
       this.logger.warn(
-        `Yjs message error for ${docName}: ${
+        `Failed to hydrate Yjs doc ${sessionId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+
+    const awareness = new awarenessProtocol.Awareness(doc);
+    awareness.setLocalState(null);
+
+    const room: SessionRoom = {
+      doc,
+      awareness,
+      conns: new Set<WebSocket>(),
+      connAwareness: new Map<WebSocket, Set<number>>(),
+    };
+
+    doc.on('update', (update: Uint8Array, origin: unknown) => {
+      const exceptConn = origin instanceof WebSocket ? origin : undefined;
+      this.broadcastFrame(room, FRAME_SYNC_UPDATE, update, exceptConn);
+      this.scheduleRedisPersist(room, sessionId);
+      this.scheduleMongoPersist(room, sessionId);
+    });
+
+    awareness.on(
+      'update',
+      (
+        {
+          added,
+          updated,
+          removed,
+        }: { added: number[]; updated: number[]; removed: number[] },
+        origin: unknown,
+      ) => {
+        const originConn = origin instanceof WebSocket ? origin : undefined;
+        if (originConn && room.connAwareness.has(originConn)) {
+          const controlled = room.connAwareness.get(originConn)!;
+          for (const clientId of added) controlled.add(clientId);
+          for (const clientId of removed) controlled.delete(clientId);
+        }
+
+        const changed = added.concat(updated, removed);
+        if (changed.length === 0) return;
+
+        const payload = awarenessProtocol.encodeAwarenessUpdate(
+          awareness,
+          changed,
+        );
+        this.broadcastFrame(room, FRAME_AWARENESS, payload, originConn);
+      },
+    );
+
+    this.rooms.set(sessionId, room);
+    return room;
+  }
+
+  private handleFrame(
+    conn: WebSocket,
+    room: SessionRoom,
+    sessionId: string,
+    frame: Uint8Array,
+  ): void {
+    if (frame.length === 0) return;
+
+    try {
+      const type = frame[0];
+      const payload = frame.subarray(1);
+
+      if (type === FRAME_SYNC_UPDATE) {
+        Y.applyUpdate(room.doc, payload, conn);
+        return;
+      }
+
+      if (type === FRAME_AWARENESS) {
+        awarenessProtocol.applyAwarenessUpdate(room.awareness, payload, conn);
+        return;
+      }
+
+      this.logger.warn(
+        `Unknown Yjs frame type 0x${type.toString(16)} for ${sessionId}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Yjs frame error for ${sessionId}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
     }
   }
 
-  private sendSyncStep1(docName: string, conn: WebSocket): void {
-    const doc = this.docs.get(docName);
-
-    if (!doc) {
-      return;
-    }
-
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, 0);
-    syncProtocol.writeSyncStep1(encoder, doc);
-
-    this.send(conn, encoding.toUint8Array(encoder));
+  private encodeFrame(type: number, payload: Uint8Array): Uint8Array {
+    const frame = new Uint8Array(payload.length + 1);
+    frame[0] = type;
+    frame.set(payload, 1);
+    return frame;
   }
 
-  private sendAwarenessState(docName: string, conn: WebSocket): void {
-    const awareness = this.docAwareness.get(docName);
-
-    if (!awareness) {
-      return;
-    }
-
-    const states = awareness.getStates();
-
-    if (states.size === 0) {
-      return;
-    }
-
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, 1);
-    encoding.writeVarUint8Array(
-      encoder,
-      awarenessProtocol.encodeAwarenessUpdate(
-        awareness,
-        Array.from(states.keys()),
-      ),
-    );
-
-    this.send(conn, encoding.toUint8Array(encoder));
+  private sendFrame(
+    conn: WebSocket,
+    type: number,
+    payload: Uint8Array,
+  ): void {
+    if (conn.readyState !== WebSocket.OPEN) return;
+    conn.send(this.encodeFrame(type, payload));
   }
 
-  private closeConnection(docName: string, conn: WebSocket): void {
-    const awareness = this.docAwareness.get(docName);
-    const connections = this.docConnections.get(docName);
+  private broadcastFrame(
+    room: SessionRoom,
+    type: number,
+    payload: Uint8Array,
+    except?: WebSocket,
+  ): void {
+    if (room.conns.size === 0) return;
 
-    if (!awareness || !connections) {
-      return;
+    const frame = this.encodeFrame(type, payload);
+    for (const conn of room.conns) {
+      if (conn === except) continue;
+      if (conn.readyState !== WebSocket.OPEN) continue;
+      conn.send(frame);
     }
+  }
 
-    const controlledIds = connections.get(conn);
-    connections.delete(conn);
+  private scheduleRedisPersist(room: SessionRoom, sessionId: string): void {
+    if (room.redisTimer) clearTimeout(room.redisTimer);
 
-    if (controlledIds && controlledIds.size > 0) {
+    room.redisTimer = setTimeout(() => {
+      room.redisTimer = undefined;
+      this.redisService
+        .setYjsDocState(sessionId, Y.encodeStateAsUpdate(room.doc))
+        .catch((error) => {
+          this.logger.warn(
+            `Failed to persist Yjs doc ${sessionId} to Redis: ${
+              error instanceof Error ? error.message : 'unknown error'
+            }`,
+          );
+        });
+    }, REDIS_PERSIST_DEBOUNCE_MS);
+  }
+
+  private scheduleMongoPersist(room: SessionRoom, sessionId: string): void {
+    if (room.mongoTimer) clearTimeout(room.mongoTimer);
+
+    room.mongoTimer = setTimeout(() => {
+      room.mongoTimer = undefined;
+      this.yjsDocStateRepository
+        .upsert(sessionId, Y.encodeStateAsUpdate(room.doc))
+        .catch((error) => {
+          this.logger.warn(
+            `Failed to persist Yjs doc ${sessionId} to Mongo: ${
+              error instanceof Error ? error.message : 'unknown error'
+            }`,
+          );
+        });
+    }, MONGO_PERSIST_DEBOUNCE_MS);
+  }
+
+  private onConnectionClose(conn: WebSocket, room: SessionRoom): void {
+    room.conns.delete(conn);
+    const controlled = room.connAwareness.get(conn);
+    room.connAwareness.delete(conn);
+
+    if (controlled && controlled.size > 0) {
       awarenessProtocol.removeAwarenessStates(
-        awareness,
-        Array.from(controlledIds),
+        room.awareness,
+        Array.from(controlled),
         null,
       );
     }
-
-    if (connections.size === 0) {
-      this.docs.get(docName)?.destroy();
-      this.docs.delete(docName);
-      this.docAwareness.delete(docName);
-      this.docConnections.delete(docName);
-    }
-  }
-
-  private send(conn: WebSocket, message: Uint8Array): void {
-    if (conn.readyState === WebSocket.OPEN) {
-      conn.send(message);
-    }
-  }
-
-  private getOrCreateDoc(docName: string): Y.Doc {
-    const existing = this.docs.get(docName);
-
-    if (existing) {
-      return existing;
-    }
-
-    const doc = new Y.Doc();
-
-    doc.on('update', (update: Uint8Array) => {
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, 0);
-      syncProtocol.writeUpdate(encoder, update);
-      const message = encoding.toUint8Array(encoder);
-
-      const connections = this.docConnections.get(docName);
-      if (!connections) {
-        return;
-      }
-
-      for (const socket of connections.keys()) {
-        this.send(socket, message);
-      }
-    });
-
-    this.docs.set(docName, doc);
-    return doc;
-  }
-
-  private getOrCreateAwareness(
-    docName: string,
-    doc: Y.Doc,
-  ): awarenessProtocol.Awareness {
-    const existing = this.docAwareness.get(docName);
-
-    if (existing) {
-      return existing;
-    }
-
-    const awareness = new awarenessProtocol.Awareness(doc);
-    awareness.setLocalState(null);
-
-    awareness.on('update', ({ added, updated, removed }, originConn) => {
-      const changedClients = added.concat(updated, removed);
-      const connections = this.docConnections.get(docName);
-
-      if (originConn && connections?.has(originConn as WebSocket)) {
-        const controlledIds = connections.get(originConn as WebSocket);
-        if (controlledIds) {
-          for (const clientId of added) {
-            controlledIds.add(clientId);
-          }
-          for (const clientId of removed) {
-            controlledIds.delete(clientId);
-          }
-        }
-      }
-
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, 1);
-      encoding.writeVarUint8Array(
-        encoder,
-        awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients),
-      );
-      const message = encoding.toUint8Array(encoder);
-
-      if (!connections) {
-        return;
-      }
-
-      for (const socket of connections.keys()) {
-        this.send(socket, message);
-      }
-    });
-
-    this.docAwareness.set(docName, awareness);
-    return awareness;
-  }
-
-  private getOrCreateConnections(docName: string): Map<WebSocket, Set<number>> {
-    const existing = this.docConnections.get(docName);
-
-    if (existing) {
-      return existing;
-    }
-
-    const connections = new Map<WebSocket, Set<number>>();
-    this.docConnections.set(docName, connections);
-    return connections;
   }
 
   private extractConnectionData(request: IncomingMessage): {
@@ -373,15 +383,33 @@ export class YjsService implements OnApplicationShutdown {
     return this.jwtService.verifyAsync<JwtPayload>(token);
   }
 
-  onApplicationShutdown(): void {
-    for (const doc of this.docs.values()) {
-      doc.destroy();
+  async onApplicationShutdown(): Promise<void> {
+    const flushes: Promise<void>[] = [];
+
+    for (const [sessionId, room] of this.rooms.entries()) {
+      if (room.redisTimer) clearTimeout(room.redisTimer);
+      if (room.mongoTimer) clearTimeout(room.mongoTimer);
+
+      flushes.push(
+        this.yjsDocStateRepository
+          .upsert(sessionId, Y.encodeStateAsUpdate(room.doc))
+          .catch((error) => {
+            this.logger.warn(
+              `Failed to flush Yjs doc ${sessionId} on shutdown: ${
+                error instanceof Error ? error.message : 'unknown error'
+              }`,
+            );
+          }),
+      );
     }
 
-    this.docs.clear();
-    this.docAwareness.clear();
-    this.docConnections.clear();
+    await Promise.allSettled(flushes);
 
+    for (const room of this.rooms.values()) {
+      room.doc.destroy();
+    }
+
+    this.rooms.clear();
     this.server?.close();
   }
 }

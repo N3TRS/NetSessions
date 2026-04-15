@@ -4,6 +4,10 @@ generator client {
   moduleFormat    = "cjs"
 }
 
+generator clientLegacy {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "mongodb"
   url      = env("DATABASE_URL")
@@ -20,10 +24,19 @@ model Session {
   updatedAt    DateTime             @updatedAt
   participants SessionParticipant[]
   snapshots    SessionSnapshot[]
+  yjsState     SessionYjsState?
 
   @@index([ownerEmail])
   @@index([isActive])
   @@index([createdAt])
+}
+
+model SessionYjsState {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String   @unique @db.ObjectId
+  state     Bytes
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model SessionParticipant {
