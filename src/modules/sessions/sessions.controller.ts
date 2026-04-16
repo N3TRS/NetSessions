@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UnauthorizedException,
@@ -13,6 +15,7 @@ import { JwtAuthGuard } from '../auth-integration/guards/jwt-auth.guard';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { JoinSessionDto } from './dto/join-session.dto';
 import { CreateSessionSnapshotDto } from './dto/create-session-snapshot.dto';
+import { RenameSessionDto } from './dto/rename-session.dto';
 import { SessionsService } from './sessions.service';
 import { AuthUser } from './interfaces/auth-user.interface';
 
@@ -47,6 +50,27 @@ export class SessionsController {
   @Get(':id')
   getSession(@Param('id') id: string) {
     return this.sessionsService.getSessionById(id);
+  }
+
+  @Patch(':id/rename')
+  renameSession(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: RenameSessionDto,
+  ) {
+    return this.sessionsService.renameSession(
+      id,
+      this.getUserEmail(request),
+      dto,
+    );
+  }
+
+  @Delete(':id')
+  deleteSession(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.sessionsService.deleteSession(id, this.getUserEmail(request));
   }
 
   @Post(':id/snapshots')

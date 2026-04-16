@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { RedisService } from '../redis/redis.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { JoinSessionDto } from './dto/join-session.dto';
 import { CreateSessionSnapshotDto } from './dto/create-session-snapshot.dto';
+import { RenameSessionDto } from './dto/rename-session.dto';
 
 const MAX_COLLABORATORS = 5;
 
@@ -25,10 +27,13 @@ export class SessionsService {
   ) {}
 
   async createSession(ownerEmail: string, dto: CreateSessionDto) {
+    const name = dto.name.trim();
+    await this.assertNameAvailableForOwner(ownerEmail, name);
+
     const inviteCode = await this.generateUniqueInviteCode();
 
     const session = await this.sessionsRepository.create({
-      name: dto.name.trim(),
+      name,
       inviteCode,
       ownerEmail,
       language: dto.language ?? 'javascript',
@@ -101,6 +106,35 @@ export class SessionsService {
     return { sessions };
   }
 
+  async renameSession(
+    sessionId: string,
+    userEmail: string,
+    dto: RenameSessionDto,
+  ) {
+    const session = await this.getSessionOrThrow(sessionId);
+    this.assertOwner(session, userEmail);
+
+    const name = dto.name.trim();
+
+    if (name === session.name) {
+      return { session };
+    }
+
+    await this.assertNameAvailableForOwner(userEmail, name, sessionId);
+    const updated = await this.sessionsRepository.updateName(sessionId, name);
+
+    return { session: updated };
+  }
+
+  async deleteSession(sessionId: string, userEmail: string) {
+    const session = await this.getSessionOrThrow(sessionId);
+    this.assertOwner(session, userEmail);
+
+    const updated = await this.sessionsRepository.softDelete(sessionId);
+
+    return { session: updated };
+  }
+
   async getSessionById(sessionId: string) {
     const session = await this.getSessionOrThrow(sessionId);
     const participants =
@@ -170,6 +204,29 @@ export class SessionsService {
 
   async releaseRunLock(sessionId: string, owner: string): Promise<void> {
     await this.redisService.releaseExecutionLock(sessionId, owner);
+  }
+
+  private assertOwner(session: Session, userEmail: string): void {
+    if (session.ownerEmail !== userEmail) {
+      throw new ForbiddenException(
+        'Only the session owner can perform this action',
+      );
+    }
+  }
+
+  private async assertNameAvailableForOwner(
+    ownerEmail: string,
+    name: string,
+    excludeSessionId?: string,
+  ): Promise<void> {
+    const existing =
+      await this.sessionsRepository.findActiveByOwnerAndName(ownerEmail, name);
+
+    if (existing && existing.id !== excludeSessionId) {
+      throw new ConflictException(
+        'You already have a session with this name',
+      );
+    }
   }
 
   private async getSessionOrThrow(sessionId: string): Promise<Session> {
