@@ -111,10 +111,7 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
-  async setYjsDocState(
-    sessionId: string,
-    state: Uint8Array,
-  ): Promise<void> {
+  async setYjsDocState(sessionId: string, state: Uint8Array): Promise<void> {
     await this.publisher.set(
       yjsDocStateKey(sessionId),
       Buffer.from(state).toString('base64'),

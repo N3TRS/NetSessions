@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { Session } from '@prisma/client';
+import * as Y from 'yjs';
 import { SessionsRepository } from '../persistence/repositories/sessions.repository';
 import { SessionParticipantsRepository } from '../persistence/repositories/session-participants.repository';
 import { SessionSnapshotsRepository } from '../persistence/repositories/session-snapshots.repository';
+import { YjsDocStateRepository } from '../persistence/repositories/yjs-doc-state.repository';
 import { RedisService } from '../redis/redis.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { JoinSessionDto } from './dto/join-session.dto';
@@ -23,6 +25,7 @@ export class SessionsService {
     private readonly sessionsRepository: SessionsRepository,
     private readonly sessionParticipantsRepository: SessionParticipantsRepository,
     private readonly sessionSnapshotsRepository: SessionSnapshotsRepository,
+    private readonly yjsDocStateRepository: YjsDocStateRepository,
     private readonly redisService: RedisService,
   ) {}
 
@@ -162,6 +165,39 @@ export class SessionsService {
     };
   }
 
+  async getSessionCode(sessionId: string): Promise<{ code: string }> {
+    await this.getSessionOrThrow(sessionId);
+
+    const stateBytes = await this.loadYjsState(sessionId);
+
+    if (!stateBytes) {
+      throw new NotFoundException('No code state available for this session');
+    }
+
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, stateBytes);
+      return { code: doc.getText('content').toJSON() };
+    } finally {
+      doc.destroy();
+    }
+  }
+
+  private async loadYjsState(sessionId: string): Promise<Uint8Array | null> {
+    const redisState = await this.redisService.getYjsDocState(sessionId);
+    if (redisState && redisState.byteLength > 0) {
+      return redisState;
+    }
+
+    const mongoState =
+      await this.yjsDocStateRepository.findBySessionId(sessionId);
+    if (mongoState?.state && mongoState.state.length > 0) {
+      return Uint8Array.from(mongoState.state);
+    }
+
+    return null;
+  }
+
   async createSnapshot(
     sessionId: string,
     savedByEmail: string,
@@ -219,13 +255,13 @@ export class SessionsService {
     name: string,
     excludeSessionId?: string,
   ): Promise<void> {
-    const existing =
-      await this.sessionsRepository.findActiveByOwnerAndName(ownerEmail, name);
+    const existing = await this.sessionsRepository.findActiveByOwnerAndName(
+      ownerEmail,
+      name,
+    );
 
     if (existing && existing.id !== excludeSessionId) {
-      throw new ConflictException(
-        'You already have a session with this name',
-      );
+      throw new ConflictException('You already have a session with this name');
     }
   }
 

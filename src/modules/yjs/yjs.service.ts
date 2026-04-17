@@ -284,11 +284,7 @@ export class YjsService implements OnApplicationShutdown {
     return frame;
   }
 
-  private sendFrame(
-    conn: WebSocket,
-    type: number,
-    payload: Uint8Array,
-  ): void {
+  private sendFrame(conn: WebSocket, type: number, payload: Uint8Array): void {
     if (conn.readyState !== WebSocket.OPEN) return;
     conn.send(this.encodeFrame(type, payload));
   }
