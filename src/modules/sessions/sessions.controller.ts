@@ -52,6 +52,11 @@ export class SessionsController {
     return this.sessionsService.getSessionById(id);
   }
 
+  @Get(':id/code')
+  getCode(@Param('id') id: string) {
+    return this.sessionsService.getSessionCode(id);
+  }
+
   @Patch(':id/rename')
   renameSession(
     @Param('id') id: string,
@@ -66,10 +71,7 @@ export class SessionsController {
   }
 
   @Delete(':id')
-  deleteSession(
-    @Param('id') id: string,
-    @Req() request: AuthenticatedRequest,
-  ) {
+  deleteSession(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
     return this.sessionsService.deleteSession(id, this.getUserEmail(request));
   }
 
