@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
-RUN npm ci
+RUN npm ci --ignore-scripts
+RUN DATABASE_URL="mongodb://dummy" npx prisma generate
 COPY . .
 RUN npm run build
 
@@ -12,7 +13,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
-RUN npm ci && npm prune --omit=dev
+RUN npm ci --ignore-scripts && DATABASE_URL="mongodb://dummy" npx prisma generate && npm prune --omit=dev
 COPY --from=builder /app/dist ./dist
 ENV NODE_ENV=production
 EXPOSE 3002
