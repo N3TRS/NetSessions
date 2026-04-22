@@ -28,11 +28,10 @@ jobs:
           npm ci
           npx prisma generate
           npm run build
-          # Limpieza de dependencias para que el despliegue sea rápido
+          # Limpiamos para que el paquete sea ligero y solo tenga producción
           rm -rf node_modules
           npm install --omit=dev
-          # Generar Prisma de nuevo para los módulos de producción
-          npx prisma generate
+          npx prisma generate 
 
       - name: Zip artifact
         run: zip -r release.zip dist node_modules package.json prisma
