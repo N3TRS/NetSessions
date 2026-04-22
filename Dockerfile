@@ -17,4 +17,4 @@ RUN npm ci --ignore-scripts && DATABASE_URL="mongodb://dummy" npx prisma generat
 COPY --from=builder /app/dist ./dist
 ENV NODE_ENV=production
 EXPOSE 3002
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main"]
