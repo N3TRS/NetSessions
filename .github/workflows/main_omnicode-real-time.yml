@@ -12,9 +12,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read #This is required for actions/checkout
-
     steps:
       - uses: actions/checkout@v4
 
@@ -22,40 +19,43 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
+          cache: 'npm'
 
-      - name: npm install, build, and test
+      - name: npm install, build, and generate prisma
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          npm install
-          npm run build --if-present
-          npm run test -- --passWithNoTests
+          npm ci
+          npx prisma generate
+          npm run build
+          # Limpieza: Solo dejamos dependencias de producción
+          rm -rf node_modules
+          npm install --omit=dev
+          # Regeneramos el cliente de Prisma para que esté dentro de los node_modules de prod
+          npx prisma generate
+
+      - name: Zip artifact for deployment
+        run: zip -r release.zip dist node_modules package.json package-lock.json prisma
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: |
-            dist
-            node_modules
-            package.json
-            package-lock.json
-            prisma
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: node-app
-          path: .
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -69,5 +69,5 @@ jobs:
         with:
           app-name: 'omnicode-real-time'
           slot-name: 'Production'
-          package: .
+          package: ./release.zip
           
