@@ -1,0 +1,45 @@
+name: Build and deploy Docker image to Azure App Service
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  ACR_NAME: acromnicodeprod.azurecr.io
+  IMAGE_NAME: omnicode-api-real-time
+  APP_NAME: omnicode-api-real-time
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
+
+      - name: Login to ACR
+        run: az acr login --name acromnicodeprod
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t $ACR_NAME/$IMAGE_NAME:${{ github.sha }} .
+          docker tag $ACR_NAME/$IMAGE_NAME:${{ github.sha }} $ACR_NAME/$IMAGE_NAME:latest
+          docker push $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
+          docker push $ACR_NAME/$IMAGE_NAME:latest
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_NAME }}
+          images: ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
