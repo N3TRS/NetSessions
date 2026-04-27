@@ -4,7 +4,6 @@ import {
   OnApplicationShutdown,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
@@ -45,7 +44,6 @@ export class YjsService implements OnApplicationShutdown {
   private readonly rooms = new Map<string, SessionRoom>();
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly sessionParticipantsRepository: SessionParticipantsRepository,
     private readonly yjsDocStateRepository: YjsDocStateRepository,
@@ -75,15 +73,6 @@ export class YjsService implements OnApplicationShutdown {
     socket: Duplex,
     head: Buffer,
   ): void {
-    const origin = request.headers.origin;
-    const allowedOrigin = this.configService.get<string>('FRONTEND_URL');
-
-    if (allowedOrigin && origin && origin !== allowedOrigin) {
-      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-
     this.server?.handleUpgrade(request, socket, head, (conn) => {
       void this.onConnection(conn, request);
     });
