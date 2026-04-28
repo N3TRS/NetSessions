@@ -29,7 +29,7 @@ type SocketWithUser = Socket & {
 @WebSocketGateway({
   namespace: '/ws/session',
   cors: {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3001',
+    origin: true,
     credentials: true,
   },
 })
