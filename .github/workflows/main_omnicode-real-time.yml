@@ -38,8 +38,32 @@ jobs:
           docker push $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
           docker push $ACR_NAME/$IMAGE_NAME:latest
 
+      - name: Reconcile Web App settings for embedded Redis
+        run: |
+          az webapp config appsettings delete \
+            --name "$APP_NAME" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --setting-names REDIS_URL || true
+          az webapp config appsettings set \
+            --name "$APP_NAME" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --settings WEBSITES_PORT=3002
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.APP_NAME }}
           images: ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Smoke check /v1/health
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS "https://${APP_NAME}.azurewebsites.net/v1/health" >/dev/null; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Waiting for app to come up ($i/24)..."
+            sleep 5
+          done
+          echo "Health check failed after 2 minutes" >&2
+          exit 1
