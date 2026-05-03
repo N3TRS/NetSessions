@@ -1,0 +1,19 @@
+services:
+  net-sessions:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: net-sessions:embedded-redis
+    container_name: net-sessions-test
+    ports:
+      - "3002:3002"
+    environment:
+      # REDIS_URL deliberadamente omitido: el módulo Redis cae a 127.0.0.1:6379,
+      # que es el redis-server embebido dentro del mismo contenedor.
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3h}
+      PISTON_API_URL: ${PISTON_API_URL}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      NODE_ENV: production
+    restart: unless-stopped

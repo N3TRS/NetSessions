@@ -43,3 +43,30 @@ jobs:
         with:
           app-name: ${{ env.APP_NAME }}
           images: ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # DESPUÉS del deploy: la imagen nueva ya trae Redis embebido, así que al
+      # borrar REDIS_URL el restart la deja apuntando a 127.0.0.1:6379 sin caída.
+      # Si lo hacemos antes, la imagen vieja se reinicia sin Redis válido.
+      - name: Reconcile Web App settings for embedded Redis
+        run: |
+          az webapp config appsettings delete \
+            --name "$APP_NAME" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --setting-names REDIS_URL || true
+          az webapp config appsettings set \
+            --name "$APP_NAME" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --settings WEBSITES_PORT=3002
+
+      - name: Smoke check /v1/health
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS "https://${APP_NAME}.azurewebsites.net/v1/health" >/dev/null; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Waiting for app to come up ($i/24)..."
+            sleep 5
+          done
+          echo "Health check failed after 2 minutes" >&2
+          exit 1
