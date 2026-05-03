@@ -5,3 +5,4 @@ export const SESSION_MEMBERS_TTL_SECONDS = 120;
 export const SESSION_STATE_TTL_SECONDS = 300;
 export const EXECUTION_LOCK_TTL_MS = 8000;
 export const YJS_DOC_STATE_TTL_SECONDS = 60 * 60 * 24;
+export const SESSION_COLORS_TTL_SECONDS = 60 * 60 * 24;

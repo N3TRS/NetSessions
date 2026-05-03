@@ -4,17 +4,27 @@ import {
   EXECUTION_LOCK_TTL_MS,
   REDIS_PUBLISHER_CLIENT,
   REDIS_SUBSCRIBER_CLIENT,
+  SESSION_COLORS_TTL_SECONDS,
   SESSION_MEMBERS_TTL_SECONDS,
   SESSION_STATE_TTL_SECONDS,
   YJS_DOC_STATE_TTL_SECONDS,
 } from './redis.constants';
 import {
+  sessionColorsKey,
   sessionEventsChannel,
   sessionExecutionLockKey,
   sessionMembersKey,
   sessionStateKey,
   yjsDocStateKey,
 } from './redis.utils';
+
+function hashEmail(email: string): number {
+  let h = 0;
+  for (let i = 0; i < email.length; i += 1) {
+    h = (h * 31 + email.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
@@ -134,6 +144,55 @@ export class RedisService implements OnModuleDestroy {
     await this.publisher.expire(
       yjsDocStateKey(sessionId),
       YJS_DOC_STATE_TTL_SECONDS,
+    );
+  }
+
+  async assignSessionColor(
+    sessionId: string,
+    userEmail: string,
+    palette: readonly string[],
+  ): Promise<string> {
+    const key = sessionColorsKey(sessionId);
+
+    const existing = await this.publisher.hget(key, userEmail);
+    if (existing) {
+      await this.publisher.expire(key, SESSION_COLORS_TTL_SECONDS);
+      return existing;
+    }
+
+    for (let attempt = 0; attempt < palette.length; attempt += 1) {
+      const taken = new Set(await this.publisher.hvals(key));
+      const free = palette.find((c) => !taken.has(c));
+      if (!free) break;
+
+      const stored = await this.publisher.hsetnx(key, userEmail, free);
+      if (stored === 1) {
+        await this.publisher.expire(key, SESSION_COLORS_TTL_SECONDS);
+        return free;
+      }
+
+      const concurrent = await this.publisher.hget(key, userEmail);
+      if (concurrent) {
+        await this.publisher.expire(key, SESSION_COLORS_TTL_SECONDS);
+        return concurrent;
+      }
+    }
+
+    const fallback = palette[hashEmail(userEmail) % palette.length];
+    await this.publisher.hsetnx(key, userEmail, fallback);
+    await this.publisher.expire(key, SESSION_COLORS_TTL_SECONDS);
+    const finalValue = await this.publisher.hget(key, userEmail);
+    return finalValue ?? fallback;
+  }
+
+  async getSessionColors(sessionId: string): Promise<Record<string, string>> {
+    return this.publisher.hgetall(sessionColorsKey(sessionId));
+  }
+
+  async refreshSessionColorsTtl(sessionId: string): Promise<void> {
+    await this.publisher.expire(
+      sessionColorsKey(sessionId),
+      SESSION_COLORS_TTL_SECONDS,
     );
   }
 

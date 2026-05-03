@@ -17,3 +17,7 @@ export function sessionExecutionLockKey(sessionId: string): string {
 export function yjsDocStateKey(sessionId: string): string {
   return `yjs:doc:${sessionId}`;
 }
+
+export function sessionColorsKey(sessionId: string): string {
+  return `session:${sessionId}:colors`;
+}
