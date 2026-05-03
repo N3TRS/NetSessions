@@ -26,6 +26,17 @@ type SocketWithUser = Socket & {
   data: { user?: WsUser; activeSessionId?: string };
 };
 
+const USER_COLOR_PALETTE = [
+  '#7C3AED',
+  '#F97316',
+  '#2563EB',
+  '#16A34A',
+  '#DB2777',
+  '#0891B2',
+  '#CA8A04',
+  '#DC2626',
+] as const;
+
 @WebSocketGateway({
   namespace: '/ws/session',
   cors: {
@@ -82,10 +93,13 @@ export class CollaborationGateway
       at: new Date().toISOString(),
     });
 
+    const colors = await this.redisService.getSessionColors(sessionId);
+
     this.server.to(this.roomName(sessionId)).emit('session.presence', {
       sessionId,
       userEmail,
       status: 'offline',
+      colors,
     });
   }
 
@@ -103,10 +117,17 @@ export class CollaborationGateway
     await client.join(this.roomName(payload.sessionId));
     client.data.activeSessionId = payload.sessionId;
 
+    await this.redisService.assignSessionColor(
+      payload.sessionId,
+      userEmail,
+      USER_COLOR_PALETTE,
+    );
+
     const members = await this.redisService.getSessionMembers(
       payload.sessionId,
     );
     const state = await this.redisService.getSessionState(payload.sessionId);
+    const colors = await this.redisService.getSessionColors(payload.sessionId);
 
     await this.redisService.publishSessionEvent(payload.sessionId, {
       type: 'session.presence',
@@ -122,6 +143,7 @@ export class CollaborationGateway
       status: 'online',
       members,
       participantsOnline: joined.participantsOnline,
+      colors,
     });
 
     return {
@@ -131,6 +153,7 @@ export class CollaborationGateway
         participantsOnline: joined.participantsOnline,
         members,
         state,
+        colors,
       },
     };
   }
@@ -160,6 +183,7 @@ export class CollaborationGateway
     const members = await this.redisService.getSessionMembers(
       payload.sessionId,
     );
+    const colors = await this.redisService.getSessionColors(payload.sessionId);
 
     this.server.to(this.roomName(payload.sessionId)).emit('session.presence', {
       sessionId: payload.sessionId,
@@ -167,6 +191,7 @@ export class CollaborationGateway
       status: 'offline',
       members,
       participantsOnline: members.length,
+      colors,
     });
 
     return {
