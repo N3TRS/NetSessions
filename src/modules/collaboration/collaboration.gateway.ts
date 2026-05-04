@@ -8,6 +8,8 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import {
+  forwardRef,
+  Inject,
   UnauthorizedException,
   Logger,
   UseGuards,
@@ -61,6 +63,7 @@ export class CollaborationGateway
   private server!: Server;
 
   constructor(
+    @Inject(forwardRef(() => SessionsService))
     private readonly sessionsService: SessionsService,
     private readonly redisService: RedisService,
   ) {}
@@ -74,6 +77,10 @@ export class CollaborationGateway
 
   emitExecutionResult(sessionId: string, payload: unknown): void {
     this.server.to(this.roomName(sessionId)).emit('execution.result', payload);
+  }
+
+  emitRoleUpdated(sessionId: string, payload: unknown): void {
+    this.server.to(this.roomName(sessionId)).emit('session.roleUpdated', payload);
   }
 
   async handleDisconnect(client: SocketWithUser): Promise<void> {
@@ -94,12 +101,14 @@ export class CollaborationGateway
     });
 
     const colors = await this.redisService.getSessionColors(sessionId);
+    const roles = await this.sessionsService.getRolesMap(sessionId);
 
     this.server.to(this.roomName(sessionId)).emit('session.presence', {
       sessionId,
       userEmail,
       status: 'offline',
       colors,
+      roles,
     });
   }
 
@@ -128,6 +137,7 @@ export class CollaborationGateway
     );
     const state = await this.redisService.getSessionState(payload.sessionId);
     const colors = await this.redisService.getSessionColors(payload.sessionId);
+    const roles = await this.sessionsService.getRolesMap(payload.sessionId);
 
     await this.redisService.publishSessionEvent(payload.sessionId, {
       type: 'session.presence',
@@ -144,6 +154,7 @@ export class CollaborationGateway
       members,
       participantsOnline: joined.participantsOnline,
       colors,
+      roles,
     });
 
     return {
@@ -154,6 +165,7 @@ export class CollaborationGateway
         members,
         state,
         colors,
+        roles,
       },
     };
   }
@@ -184,6 +196,7 @@ export class CollaborationGateway
       payload.sessionId,
     );
     const colors = await this.redisService.getSessionColors(payload.sessionId);
+    const roles = await this.sessionsService.getRolesMap(payload.sessionId);
 
     this.server.to(this.roomName(payload.sessionId)).emit('session.presence', {
       sessionId: payload.sessionId,
@@ -192,6 +205,7 @@ export class CollaborationGateway
       members,
       participantsOnline: members.length,
       colors,
+      roles,
     });
 
     return {
