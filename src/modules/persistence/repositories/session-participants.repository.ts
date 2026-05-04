@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SessionParticipant } from '@prisma/client';
+import { PermissionLevel, SessionParticipant } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -9,6 +9,7 @@ export class SessionParticipantsRepository {
   async upsertOnlineParticipant(
     sessionId: string,
     userEmail: string,
+    ownerEmail?: string,
   ): Promise<SessionParticipant> {
     const existing = await this.prisma.sessionParticipant.findUnique({
       where: {
@@ -29,12 +30,32 @@ export class SessionParticipantsRepository {
       });
     }
 
+    const role: PermissionLevel =
+      ownerEmail !== undefined && ownerEmail === userEmail ? 'OWNER' : 'VIEW';
+
     return this.prisma.sessionParticipant.create({
       data: {
         sessionId,
         userEmail,
         isOnline: true,
+        role,
       },
+    });
+  }
+
+  updateRole(
+    sessionId: string,
+    userEmail: string,
+    role: PermissionLevel,
+  ): Promise<SessionParticipant> {
+    return this.prisma.sessionParticipant.update({
+      where: {
+        sessionId_userEmail: {
+          sessionId,
+          userEmail,
+        },
+      },
+      data: { role },
     });
   }
 

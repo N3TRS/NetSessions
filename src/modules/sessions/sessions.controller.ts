@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   Delete,
+  forwardRef,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
@@ -23,10 +25,12 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth-integration/guards/jwt-auth.guard';
+import { CollaborationGateway } from '../collaboration/collaboration.gateway';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { JoinSessionDto } from './dto/join-session.dto';
 import { CreateSessionSnapshotDto } from './dto/create-session-snapshot.dto';
 import { RenameSessionDto } from './dto/rename-session.dto';
+import { UpdateParticipantRoleDto } from './dto/update-participant-role.dto';
 import { SessionsService } from './sessions.service';
 import { AuthUser } from './interfaces/auth-user.interface';
 
@@ -38,7 +42,11 @@ type AuthenticatedRequest = Request & { user?: AuthUser };
 @Controller('sessions')
 @UseGuards(JwtAuthGuard)
 export class SessionsController {
-  constructor(private readonly sessionsService: SessionsService) {}
+  constructor(
+    private readonly sessionsService: SessionsService,
+    @Inject(forwardRef(() => CollaborationGateway))
+    private readonly collaborationGateway: CollaborationGateway,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -180,6 +188,44 @@ export class SessionsController {
       this.getUserEmail(request),
       dto,
     );
+  }
+
+  @Patch(':id/participants/:email/role')
+  @ApiOperation({
+    summary: 'Update a participant role',
+    description:
+      'Owner-only. Assigns one of: VIEW, VIEW_EDIT, VIEW_EDIT_EXECUTE, VIEW_EDIT_EXECUTE_SAVE. Cannot target the session owner.',
+  })
+  @ApiParam({ name: 'id', description: 'Session Mongo ObjectId.' })
+  @ApiParam({ name: 'email', description: 'Target participant email (URL-encoded).' })
+  @ApiNotFoundResponse({ description: 'Session or participant not found.' })
+  @ApiForbiddenResponse({
+    description: 'Caller is not the owner, target is the owner, or role=OWNER.',
+  })
+  async updateParticipantRole(
+    @Param('id') id: string,
+    @Param('email') email: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: UpdateParticipantRoleDto,
+  ) {
+    const actingEmail = this.getUserEmail(request);
+    const targetEmail = decodeURIComponent(email);
+    const result = await this.sessionsService.updateParticipantRole(
+      id,
+      actingEmail,
+      targetEmail,
+      dto.role,
+    );
+
+    this.collaborationGateway.emitRoleUpdated(id, {
+      sessionId: id,
+      userEmail: targetEmail,
+      role: dto.role,
+      changedBy: actingEmail,
+      timestamp: Date.now(),
+    });
+
+    return { participant: result.participant };
   }
 
   private getUserEmail(request: AuthenticatedRequest): string {

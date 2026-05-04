@@ -40,17 +40,26 @@ model SessionYjsState {
 }
 
 model SessionParticipant {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId String    @db.ObjectId
+  id        String          @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String          @db.ObjectId
   userEmail String
-  isOnline  Boolean   @default(true)
-  joinedAt  DateTime  @default(now())
+  isOnline  Boolean         @default(true)
+  joinedAt  DateTime        @default(now())
   leftAt    DateTime?
-  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      PermissionLevel @default(VIEW)
+  session   Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, userEmail])
   @@index([sessionId, isOnline])
   @@index([userEmail])
+}
+
+enum PermissionLevel {
+  OWNER
+  VIEW_EDIT_EXECUTE_SAVE
+  VIEW_EDIT_EXECUTE
+  VIEW_EDIT
+  VIEW
 }
 
 model SessionSnapshot {

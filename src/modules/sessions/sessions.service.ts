@@ -5,7 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { Session } from '@prisma/client';
+import { PermissionLevel, Session } from '@prisma/client';
+import {
+  canChangeRoles,
+  canSave,
+} from './permissions';
 import * as Y from 'yjs';
 import { SessionsRepository } from '../persistence/repositories/sessions.repository';
 import { SessionParticipantsRepository } from '../persistence/repositories/session-participants.repository';
@@ -45,6 +49,7 @@ export class SessionsService {
     await this.sessionParticipantsRepository.upsertOnlineParticipant(
       session.id,
       ownerEmail,
+      ownerEmail,
     );
 
     await this.redisService.addSessionMember(session.id, ownerEmail);
@@ -70,7 +75,7 @@ export class SessionsService {
       throw new NotFoundException('Session not found');
     }
 
-    await this.markParticipantOnline(session.id, userEmail);
+    await this.markParticipantOnline(session.id, userEmail, session.ownerEmail);
 
     await this.redisService.addSessionMember(session.id, userEmail);
     await this.redisService.refreshSessionStateTtl(session.id);
@@ -89,7 +94,7 @@ export class SessionsService {
   async joinSessionById(sessionId: string, userEmail: string) {
     const session = await this.getSessionOrThrow(sessionId);
 
-    await this.markParticipantOnline(session.id, userEmail);
+    await this.markParticipantOnline(session.id, userEmail, session.ownerEmail);
     await this.redisService.addSessionMember(session.id, userEmail);
     await this.redisService.refreshSessionStateTtl(session.id);
 
@@ -136,6 +141,22 @@ export class SessionsService {
     const updated = await this.sessionsRepository.softDelete(sessionId);
 
     return { session: updated };
+  }
+
+  async getRolesMap(
+    sessionId: string,
+  ): Promise<Record<string, PermissionLevel>> {
+    const session = await this.getSessionOrThrow(sessionId);
+    const participants =
+      await this.sessionParticipantsRepository.listBySessionId(sessionId);
+    const map: Record<string, PermissionLevel> = {};
+    for (const p of participants) {
+      map[p.userEmail] =
+        p.userEmail === session.ownerEmail
+          ? 'OWNER'
+          : ((p as { role?: PermissionLevel }).role ?? 'VIEW');
+    }
+    return map;
   }
 
   async getSessionById(sessionId: string) {
@@ -203,7 +224,19 @@ export class SessionsService {
     savedByEmail: string,
     dto: CreateSessionSnapshotDto,
   ) {
-    await this.getSessionOrThrow(sessionId);
+    const session = await this.getSessionOrThrow(sessionId);
+
+    const participant =
+      await this.sessionParticipantsRepository.findBySessionIdAndUserEmail(
+        sessionId,
+        savedByEmail,
+      );
+
+    if (!canSave(participant?.role, session.ownerEmail, savedByEmail)) {
+      throw new ForbiddenException(
+        'You do not have permission to save snapshots in this session',
+      );
+    }
 
     const snapshot = await this.sessionSnapshotsRepository.create({
       sessionId,
@@ -292,6 +325,7 @@ export class SessionsService {
   private async markParticipantOnline(
     sessionId: string,
     userEmail: string,
+    ownerEmail?: string,
   ): Promise<void> {
     const existing =
       await this.sessionParticipantsRepository.findBySessionIdAndUserEmail(
@@ -313,6 +347,48 @@ export class SessionsService {
     await this.sessionParticipantsRepository.upsertOnlineParticipant(
       sessionId,
       userEmail,
+      ownerEmail,
     );
+  }
+
+  async updateParticipantRole(
+    sessionId: string,
+    actingUserEmail: string,
+    targetUserEmail: string,
+    role: PermissionLevel,
+  ) {
+    const session = await this.getSessionOrThrow(sessionId);
+
+    if (!canChangeRoles(session.ownerEmail, actingUserEmail)) {
+      throw new ForbiddenException('Only the session owner can change roles');
+    }
+    if (session.ownerEmail === targetUserEmail) {
+      throw new ForbiddenException('Owner role cannot be changed');
+    }
+    if (role === 'OWNER') {
+      throw new ForbiddenException('OWNER role cannot be assigned');
+    }
+
+    const target =
+      await this.sessionParticipantsRepository.findBySessionIdAndUserEmail(
+        sessionId,
+        targetUserEmail,
+      );
+
+    if (!target) {
+      throw new NotFoundException('Participant not found in session');
+    }
+
+    const updated = await this.sessionParticipantsRepository.updateRole(
+      sessionId,
+      targetUserEmail,
+      role,
+    );
+
+    return {
+      participant: updated,
+      changedBy: actingUserEmail,
+      session,
+    };
   }
 }
