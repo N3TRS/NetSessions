@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { PistonService } from './piston.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { RedisService } from '../redis/redis.service';
 import { CollaborationGateway } from '../collaboration/collaboration.gateway';
+import { canExecute } from '../sessions/permissions';
 
 @Injectable()
 export class ExecutionService {
@@ -35,12 +37,24 @@ export class ExecutionService {
       const sessionData = await this.sessionsService.getSessionById(
         dto.sessionId,
       );
-      const userIsMember = sessionData.participants.some(
-        (participant) => participant.userEmail === userEmail,
+      const participant = sessionData.participants.find(
+        (p) => p.userEmail === userEmail,
       );
 
-      if (!userIsMember) {
+      if (!participant) {
         throw new UnauthorizedException('User is not a member of this session');
+      }
+
+      if (
+        !canExecute(
+          participant.role,
+          sessionData.session.ownerEmail,
+          userEmail,
+        )
+      ) {
+        throw new ForbiddenException(
+          'You do not have permission to execute code in this session',
+        );
       }
 
       const result = await this.pistonService.execute({
