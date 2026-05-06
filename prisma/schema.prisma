@@ -24,7 +24,8 @@ model Session {
   updatedAt    DateTime             @updatedAt
   participants SessionParticipant[]
   snapshots    SessionSnapshot[]
-  yjsState     SessionYjsState?
+  yjsState        SessionYjsState?
+  whiteboardState SessionWhiteboardState?
 
   @@index([ownerEmail])
   @@index([isActive])
@@ -60,6 +61,14 @@ enum PermissionLevel {
   VIEW_EDIT_EXECUTE
   VIEW_EDIT
   VIEW
+}
+
+model SessionWhiteboardState {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String   @unique @db.ObjectId
+  elements  String
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model SessionSnapshot {

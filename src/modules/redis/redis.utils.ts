@@ -21,3 +21,7 @@ export function yjsDocStateKey(sessionId: string): string {
 export function sessionColorsKey(sessionId: string): string {
   return `session:${sessionId}:colors`;
 }
+
+export function whiteboardStateKey(sessionId: string): string {
+  return `whiteboard:${sessionId}:elements`;
+}
