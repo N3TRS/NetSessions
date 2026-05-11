@@ -4,6 +4,7 @@ import { SessionsRepository } from './repositories/sessions.repository';
 import { SessionParticipantsRepository } from './repositories/session-participants.repository';
 import { SessionSnapshotsRepository } from './repositories/session-snapshots.repository';
 import { YjsDocStateRepository } from './repositories/yjs-doc-state.repository';
+import { WhiteboardStateRepository } from './repositories/whiteboard-state.repository';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { YjsDocStateRepository } from './repositories/yjs-doc-state.repository';
     SessionParticipantsRepository,
     SessionSnapshotsRepository,
     YjsDocStateRepository,
+    WhiteboardStateRepository,
   ],
   exports: [
     PrismaService,
@@ -19,6 +21,7 @@ import { YjsDocStateRepository } from './repositories/yjs-doc-state.repository';
     SessionParticipantsRepository,
     SessionSnapshotsRepository,
     YjsDocStateRepository,
+    WhiteboardStateRepository,
   ],
 })
 export class PersistenceModule {}

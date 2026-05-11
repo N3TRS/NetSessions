@@ -7,6 +7,7 @@ export interface CreateSessionSnapshotInput {
   savedByEmail: string;
   language: string;
   code: string;
+  whiteboardElements?: string | null;
 }
 
 @Injectable()
