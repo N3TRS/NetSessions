@@ -8,5 +8,6 @@ import { WhiteboardJwtGuard } from './whiteboard-jwt.guard';
 @Module({
   imports: [AuthIntegrationModule, RedisModule, PersistenceModule],
   providers: [WhiteboardGateway, WhiteboardJwtGuard],
+  exports: [WhiteboardGateway],
 })
 export class WhiteboardModule {}

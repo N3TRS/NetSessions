@@ -15,7 +15,9 @@ import { SessionsRepository } from '../persistence/repositories/sessions.reposit
 import { SessionParticipantsRepository } from '../persistence/repositories/session-participants.repository';
 import { SessionSnapshotsRepository } from '../persistence/repositories/session-snapshots.repository';
 import { YjsDocStateRepository } from '../persistence/repositories/yjs-doc-state.repository';
+import { WhiteboardStateRepository } from '../persistence/repositories/whiteboard-state.repository';
 import { RedisService } from '../redis/redis.service';
+import { WhiteboardGateway } from '../whiteboard/whiteboard.gateway';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { JoinSessionDto } from './dto/join-session.dto';
 import { CreateSessionSnapshotDto } from './dto/create-session-snapshot.dto';
@@ -30,7 +32,9 @@ export class SessionsService {
     private readonly sessionParticipantsRepository: SessionParticipantsRepository,
     private readonly sessionSnapshotsRepository: SessionSnapshotsRepository,
     private readonly yjsDocStateRepository: YjsDocStateRepository,
+    private readonly whiteboardStateRepository: WhiteboardStateRepository,
     private readonly redisService: RedisService,
+    private readonly whiteboardGateway: WhiteboardGateway,
   ) {}
 
   async createSession(ownerEmail: string, dto: CreateSessionDto) {
@@ -204,6 +208,21 @@ export class SessionsService {
     }
   }
 
+  private async captureWhiteboardForSnapshot(
+    sessionId: string,
+  ): Promise<string | null> {
+    const liveBoard = this.whiteboardGateway.getCurrentElements(sessionId);
+
+    if (liveBoard) {
+      await this.whiteboardStateRepository.upsert(sessionId, liveBoard);
+      await this.redisService.setWhiteboardState(sessionId, liveBoard);
+      return JSON.stringify(liveBoard);
+    }
+
+    const row = await this.whiteboardStateRepository.findBySessionId(sessionId);
+    return row?.elements ?? null;
+  }
+
   private async loadYjsState(sessionId: string): Promise<Uint8Array | null> {
     const redisState = await this.redisService.getYjsDocState(sessionId);
     if (redisState && redisState.byteLength > 0) {
@@ -238,11 +257,14 @@ export class SessionsService {
       );
     }
 
+    const whiteboardElements = await this.captureWhiteboardForSnapshot(sessionId);
+
     const snapshot = await this.sessionSnapshotsRepository.create({
       sessionId,
       savedByEmail,
       language: dto.language,
       code: dto.code,
+      whiteboardElements,
     });
 
     await this.redisService.setSessionState(sessionId, {

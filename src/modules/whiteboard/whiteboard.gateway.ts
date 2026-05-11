@@ -86,7 +86,7 @@ export class WhiteboardGateway
           this.redisDebounces.delete(sessionId);
           this.mongoDebounces.delete(sessionId);
 
-          if (Array.isArray(elements) && elements.length > 0) {
+          if (Array.isArray(elements)) {
             void this.redis.setWhiteboardState(sessionId, elements);
             void this.whiteboardRepo.upsert(sessionId, elements);
           }
@@ -200,6 +200,10 @@ export class WhiteboardGateway
       x,
       y,
     });
+  }
+
+  getCurrentElements(sessionId: string): unknown[] | null {
+    return this.roomElements.get(sessionId) ?? null;
   }
 
   private getCollaboratorsExcept(
