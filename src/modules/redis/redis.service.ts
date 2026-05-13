@@ -7,7 +7,6 @@ import {
   SESSION_COLORS_TTL_SECONDS,
   SESSION_MEMBERS_TTL_SECONDS,
   SESSION_STATE_TTL_SECONDS,
-  WHITEBOARD_STATE_TTL_SECONDS,
   YJS_DOC_STATE_TTL_SECONDS,
 } from './redis.constants';
 import {
@@ -16,7 +15,6 @@ import {
   sessionExecutionLockKey,
   sessionMembersKey,
   sessionStateKey,
-  whiteboardStateKey,
   yjsDocStateKey,
 } from './redis.utils';
 
@@ -147,24 +145,6 @@ export class RedisService implements OnModuleDestroy {
       yjsDocStateKey(sessionId),
       YJS_DOC_STATE_TTL_SECONDS,
     );
-  }
-
-  async setWhiteboardState(
-    sessionId: string,
-    elements: unknown[],
-  ): Promise<void> {
-    await this.publisher.set(
-      whiteboardStateKey(sessionId),
-      JSON.stringify(elements),
-      'EX',
-      WHITEBOARD_STATE_TTL_SECONDS,
-    );
-  }
-
-  async getWhiteboardState(sessionId: string): Promise<unknown[] | null> {
-    const value = await this.publisher.get(whiteboardStateKey(sessionId));
-    if (!value) return null;
-    return JSON.parse(value) as unknown[];
   }
 
   async assignSessionColor(

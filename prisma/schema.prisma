@@ -25,7 +25,6 @@ model Session {
   participants SessionParticipant[]
   snapshots    SessionSnapshot[]
   yjsState        SessionYjsState?
-  whiteboardState SessionWhiteboardState?
 
   @@index([ownerEmail])
   @@index([isActive])
@@ -63,23 +62,14 @@ enum PermissionLevel {
   VIEW
 }
 
-model SessionWhiteboardState {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId String   @unique @db.ObjectId
-  elements  String
-  updatedAt DateTime @updatedAt
-  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-}
-
 model SessionSnapshot {
-  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId          String   @db.ObjectId
-  savedByEmail       String
-  language           String
-  code               String
-  whiteboardElements String?
-  createdAt          DateTime @default(now())
-  session            Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId    String   @db.ObjectId
+  savedByEmail String
+  language     String
+  code         String
+  createdAt    DateTime @default(now())
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, createdAt])
   @@index([savedByEmail])
