@@ -516,4 +516,94 @@ describe('SessionsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('markParticipantOnline — branch coverage', () => {
+    it('skips count check when participant already online', async () => {
+      // Participant exists AND isOnline=true → skip countOnlineBySessionId entirely
+      sessionsRepo.findByInviteCode.mockResolvedValue(mockSession);
+      participantsRepo.findBySessionIdAndUserEmail.mockResolvedValue({
+        ...mockParticipant,
+        userEmail: 'owner@test.com',
+        isOnline: true,
+      });
+      participantsRepo.upsertOnlineParticipant.mockResolvedValue(mockParticipant);
+      redisService.addSessionMember.mockResolvedValue(1);
+      redisService.refreshSessionStateTtl.mockResolvedValue(undefined);
+      redisService.getSessionMembersCount.mockResolvedValue(1);
+
+      const result = await service.joinSession('owner@test.com', { inviteCode: 'ABCD1234' });
+
+      expect(participantsRepo.countOnlineBySessionId).not.toHaveBeenCalled();
+      expect(result.canJoin).toBe(true);
+    });
+
+    it('runs count check when participant exists but is offline', async () => {
+      sessionsRepo.findByInviteCode.mockResolvedValue(mockSession);
+      participantsRepo.findBySessionIdAndUserEmail.mockResolvedValue({
+        ...mockParticipant,
+        isOnline: false,
+      });
+      participantsRepo.countOnlineBySessionId.mockResolvedValue(2);
+      participantsRepo.upsertOnlineParticipant.mockResolvedValue(mockParticipant);
+      redisService.addSessionMember.mockResolvedValue(1);
+      redisService.refreshSessionStateTtl.mockResolvedValue(undefined);
+      redisService.getSessionMembersCount.mockResolvedValue(3);
+
+      const result = await service.joinSession('owner@test.com', { inviteCode: 'ABCD1234' });
+
+      expect(participantsRepo.countOnlineBySessionId).toHaveBeenCalled();
+      expect(result.canJoin).toBe(true);
+    });
+  });
+
+  describe('loadYjsState — branch coverage', () => {
+    it('falls back to mongo when redis state has zero byteLength', async () => {
+      sessionsRepo.findById.mockResolvedValue(mockSession);
+      // Non-null but empty Uint8Array → byteLength === 0 → should fall through to mongo
+      redisService.getYjsDocState.mockResolvedValue(new Uint8Array(0));
+      yjsRepo.findBySessionId.mockResolvedValue(null);
+
+      await expect(service.getSessionCode('session-id')).rejects.toThrow(NotFoundException);
+      expect(yjsRepo.findBySessionId).toHaveBeenCalled();
+    });
+
+    it('returns null when mongo state array is empty', async () => {
+      sessionsRepo.findById.mockResolvedValue(mockSession);
+      redisService.getYjsDocState.mockResolvedValue(null);
+      yjsRepo.findBySessionId.mockResolvedValue({ sessionId: 'session-id', state: [] } as any);
+
+      await expect(service.getSessionCode('session-id')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('assertNameAvailableForOwner — branch coverage', () => {
+    it('does not throw when existing session has same id as excluded', async () => {
+      // Same session being renamed to same name — exclude own id
+      sessionsRepo.findById.mockResolvedValue(mockSession);
+      // findActiveByOwnerAndName returns THIS session (same id) → no conflict
+      sessionsRepo.findActiveByOwnerAndName.mockResolvedValue(mockSession);
+      sessionsRepo.updateName.mockResolvedValue({ ...mockSession, name: 'Different' });
+
+      // renameSession passes excludeSessionId = 'session-id' which matches mockSession.id
+      const result = await service.renameSession('session-id', 'owner@test.com', { name: 'Different' });
+
+      expect(result.session).toBeDefined();
+    });
+  });
+
+  describe('getSessionById — branch coverage', () => {
+    it('counts offline participants as 0 when redisMembers empty and all offline', async () => {
+      sessionsRepo.findById.mockResolvedValue(mockSession);
+      participantsRepo.listBySessionId.mockResolvedValue([
+        { ...mockParticipant, isOnline: false },
+      ]);
+      redisService.getSessionState.mockResolvedValue({});
+      redisService.getSessionMembers.mockResolvedValue([]);
+      redisService.setSessionState.mockResolvedValue(undefined);
+
+      const result = await service.getSessionById('session-id');
+
+      expect(result.participantsOnline).toBe(0);
+    });
+  });
 });

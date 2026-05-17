@@ -193,12 +193,21 @@ describe('RedisService', () => {
   });
 
   describe('unsubscribeFromSessionEvents', () => {
-    it('unsubscribes from channel', async () => {
-      subscriber.unsubscribe.mockResolvedValue(0);
+    it('unsubscribes from channel and returns number', async () => {
+      subscriber.unsubscribe.mockResolvedValue(1);
 
-      await service.unsubscribeFromSessionEvents('s1');
+      const result = await service.unsubscribeFromSessionEvents('s1');
 
       expect(subscriber.unsubscribe).toHaveBeenCalledWith('channel:session:s1:events');
+      expect(result).toBe(1);
+    });
+
+    it('returns 0 when unsubscribe result is not a number', async () => {
+      subscriber.unsubscribe.mockResolvedValue('OK' as any);
+
+      const result = await service.unsubscribeFromSessionEvents('s1');
+
+      expect(result).toBe(0);
     });
   });
 
@@ -311,13 +320,54 @@ describe('RedisService', () => {
       expect(() => messageCallback('unknown:channel', '{}')).not.toThrow();
     });
 
-    it('logs warning on invalid JSON payload', async () => {
+    it('logs warning on invalid JSON payload (Error instance)', async () => {
       const handler = jest.fn();
       await service.subscribeToSessionEvents('s1', handler);
 
       const messageCallback = subscriber.on.mock.calls.find(([event]: [string]) => event === 'message')?.[1];
       expect(() => messageCallback('channel:session:s1:events', 'invalid json')).not.toThrow();
       expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('logs warning when handler throws non-Error value', async () => {
+      // Handler throws a plain string (not instanceof Error) → tests the `: undefined` branch
+      const handler = jest.fn().mockImplementation(() => { throw 'string error'; });
+      await service.subscribeToSessionEvents('s1', handler);
+
+      const messageCallback = subscriber.on.mock.calls.find(([event]: [string]) => event === 'message')?.[1];
+      expect(() => messageCallback('channel:session:s1:events', JSON.stringify({ ok: true }))).not.toThrow();
+    });
+  });
+
+  describe('assignSessionColor — race loop exhausted', () => {
+    it('falls to hash fallback when all attempts find no free slot and hget returns null', async () => {
+      // First hget (existing check): null → not already assigned
+      // Loop: hvals returns all taken, find free → undefined → break immediately
+      publisher.hget
+        .mockResolvedValueOnce(null) // initial check
+        .mockResolvedValue(null);    // concurrent check (won't reach)
+      publisher.hvals.mockResolvedValue(['#7C3AED', '#F97316']); // all taken
+      publisher.hsetnx.mockResolvedValue(0);
+      publisher.hget.mockResolvedValue(null); // final hget after fallback hsetnx
+
+      const palette = ['#7C3AED', '#F97316'];
+      const color = await service.assignSessionColor('s1', 'user@test.com', palette);
+
+      // Should return fallback derived from hashEmail
+      expect(palette).toContain(color);
+    });
+
+    it('returns finalValue from hget when fallback hsetnx stores it', async () => {
+      publisher.hget
+        .mockResolvedValueOnce(null)       // initial check
+        .mockResolvedValue('#F97316');     // after fallback hsetnx
+      publisher.hvals.mockResolvedValue(['#7C3AED', '#F97316']); // all taken → break
+      publisher.hsetnx.mockResolvedValue(0);
+
+      const palette = ['#7C3AED', '#F97316'];
+      const color = await service.assignSessionColor('s1', 'user@test.com', palette);
+
+      expect(color).toBe('#F97316');
     });
   });
 });
