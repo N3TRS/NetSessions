@@ -121,4 +121,30 @@ describe('PistonService', () => {
     const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body);
     expect(body.files[0].name).toBe('main.ts');
   });
+
+  it('falls back to .txt extension when language has no mapped extension', async () => {
+    // Temporarily inject a language into ALLOWED_LANGUAGES without a FILE_EXTENSIONS entry
+    const constants = require('src/modules/execution/constants/piston.constants');
+    const originalAllowed = { ...constants.ALLOWED_LANGUAGES };
+    const originalExts = { ...constants.FILE_EXTENSIONS };
+
+    constants.ALLOWED_LANGUAGES['brainfuck'] = '2.7.3';
+    delete constants.FILE_EXTENSIONS['brainfuck'];
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({}),
+    } as any);
+
+    await service.execute({ language: 'brainfuck', code: '+++.' });
+
+    const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body.files[0].name).toBe('main.txt');
+
+    // Restore
+    Object.keys(constants.ALLOWED_LANGUAGES).forEach((k) => delete constants.ALLOWED_LANGUAGES[k]);
+    Object.assign(constants.ALLOWED_LANGUAGES, originalAllowed);
+    Object.keys(constants.FILE_EXTENSIONS).forEach((k) => delete constants.FILE_EXTENSIONS[k]);
+    Object.assign(constants.FILE_EXTENSIONS, originalExts);
+  });
 });
