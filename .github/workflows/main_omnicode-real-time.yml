@@ -21,6 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: npm install, build, and test
+        run: |
+          npm install
+          npm run build
+          npm run test:cov -- --passWithNoTests
+          
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
