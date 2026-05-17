@@ -93,9 +93,13 @@
       "^src/(.*)$": "<rootDir>/src/$1"
     },
     "collectCoverageFrom": [
-      "src/*/.(t|j)s",
-      "!src/*/.spec.ts",
-      "!src/main.ts"
+      "src/**/*.(t|j)s",
+      "!src/**/*.spec.ts",
+      "!src/main.ts",
+      "!src/**/*.module.ts",
+      "!src/**/*.dto.ts",
+      "!src/**/*.interface.ts",
+      "!src/**/*.constants.ts"
     ],
     "coverageDirectory": "coverage",
     "coverageReporters": ["lcov", "text", "clover"],
