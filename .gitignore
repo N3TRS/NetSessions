@@ -60,3 +60,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .claude/
 AGENTS.md
 CLAUDE.md
+fixtures/yjs-updates.bin
+results/*.json
+results/*.html
+results/*.txt
+!results/.gitkeep
